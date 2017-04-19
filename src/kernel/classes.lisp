@@ -138,12 +138,21 @@
 
 #-lparallel.without-task-categories
 (locally (declare #.*full-optimize*)
-  (defpair task ()
-    ((fn       :reader task-fn :type function)
-     (category :reader task-category))
+  (defclass task ()
+    ((fn       :initarg fn       :reader task-fn :type function)
+     (category :initarg category :reader task-category)
+     (vars     :initarg vars     :reader task-vars :type list)
+     (vals     :initarg vals     :reader task-vals :type list))
     (:documentation
      "A task consists of a function and a category. See `kill-tasks' for
      and explanation of task categories.")))
+
+(defun make-task-instance (fn cat specials)
+  (make-instance 'task
+                 :fn fn
+                 :category cat
+                 :vars specials
+                 :vals (mapcar #'symbol-value specials)))
 
 #+lparallel.without-task-categories
 (progn

@@ -267,6 +267,21 @@
       (is (eq :worker (receive-result channel)))
       (is (eq :main *memo*)))))
 
+(base-test submit-time-binding-test
+  (with-temp-kernel (4 :submit-time-bindings '(*memo*))
+    (let ((channel (make-channel)))
+      (let ((*memo* :main))
+        (submit-task channel (lambda () *memo*))
+        (is (eq :main (receive-result channel))))
+      (let ((*memo* 1))
+        (submit-task channel (lambda () *memo*))
+        (is (eq 1 (receive-result channel)))
+        (break)
+        (is (equal '(1 2 3)
+                   (pmapcar (lambda (x)
+                              (+ *memo* x))
+                            '(0 1 2))))))))
+
 (full-test kernel-var-test
   (let ((channel (make-channel)))
     (submit-task channel (lambda () *kernel*))

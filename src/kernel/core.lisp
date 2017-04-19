@@ -117,7 +117,9 @@
     (unwind-protect/ext
        :main  (loop (let ((task (next-task scheduler worker)))
                       (if task
-                          (exec-task/worker (the task task) worker)
+                          (progv (task-vars task)
+                                 (task-vals task)
+                            (exec-task/worker (the task task) worker))
                           (return))))
        :abort (unless *lisp-exiting-p*
                 (replace-worker kernel worker)))))
@@ -211,6 +213,7 @@
                     (name "lparallel")
                     (bindings `((*standard-output* . ,*standard-output*)
                                 (*error-output*    . ,*error-output*)))
+                    (submit-time-bindings ())
                     (context #'funcall)
                     (spin-count *kernel-spin-count*)
                     (use-caller nil))
@@ -223,6 +226,11 @@
 `bindings' is an alist for establishing thread-local variables inside
 worker threads. By default workers will have *standard-output* and
 *error-output* bindings.
+
+`submit-time-bindings` is a list of symbols; these symbols get
+bound in the worker threads via `progv` when running a task, to
+the values that are present in the calling thread at the `submit-task`
+time.
 
 Dynamic context for each worker may be established with the function
 `context'. The argument passed to `context' is a function which must
@@ -256,6 +264,7 @@ A kernel will not be garbage collected until `end-kernel' is called."
                                       :name name)
                         :use-caller-p (to-boolean use-caller)
                         :alivep t
+                        :submit-time-bindings submit-time-bindings
                         (funcall *make-limiter-data* thread-count))))
     (fill-workers workers kernel)
     kernel))
@@ -348,21 +357,24 @@ Note that a fixed capacity channel may cause a deadlocked kernel if
   `(lambda () ,@body))
 
 #-lparallel.without-task-categories
-(defun/type/inline make-task (fn) (function) task
+(defun/type/inline make-task (fn &optional specials) (function) task
   (declare #.*full-optimize*)
-  (make-task-instance fn *task-category*))
+  (make-task-instance fn *task-category* specials))
+
 
 (defun/type make-channeled-task (channel fn args) (channel function list) t
   ;; avoid allocation from extent checks with safety 0 (sbcl)
   (declare #.*full-optimize*)
-  (let ((queue (channel-queue channel)))
+  (let ((queue (channel-queue channel))
+        (kernel (channel-kernel channel)))
     (make-task
       (task-lambda
         (unwind-protect/ext
          ;; task handler already established inside worker threads
          :main  (push-queue (with-task-context (apply fn args)) queue)
          ;; the task handler handles everything; unwind means thread kill
-         :abort (push-queue (wrap-error 'task-killed-error) queue))))))
+         :abort (push-queue (wrap-error 'task-killed-error) queue)))
+      (submit-time-bindings kernel))))
 
 (defun/type/inline submit-raw-task (task kernel) (task kernel) (values)
   (declare #.*normal-optimize*)
